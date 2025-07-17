@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rádio Cuesta Botucatu</title>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #1A237E; /* Azul vibrante (Deep Purple 900) */
+            color: #FFCA28; /* Amarelo ouro (Amber A400) - Cor principal do texto para contraste */
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            text-align: center;
+        }
+        .container {
+            background-color: #283593; /* Tom mais escuro de azul (Indigo 700) */
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.3);
+            max-width: 500px;
+            width: 90%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h1 {
+            /* Aplica a fonte Montserrat */
+            font-family: 'Montserrat', sans-serif;
+            color: #FFEB3B; /* Amarelo mais claro (Yellow A400) - para o título */
+            margin-bottom: 10px;
+            font-size: 2.8em; /* Tamanho para destacar */
+            letter-spacing: 2px; /* Espaçamento entre letras para um visual moderno */
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3); /* Sombra suave para dar profundidade */
+        }
+        p {
+            font-size: 1.3em;
+            margin-bottom: 25px;
+            line-height: 1.6;
+        }
+        audio {
+            width: 100%;
+            max-width: 350px;
+            margin-top: 20px;
+            background-color: #FFF;
+            border-radius: 5px;
+            outline: none;
+        }
+        /* Estilos para o canvas do VU de barra dupla deitado */
+        canvas {
+            background-color: #000; /* Fundo preto para o visualizador */
+            border: 2px solid #FFCA28; /* Borda amarelo ouro */
+            border-radius: 5px;
+            margin-top: 20px;
+            width: 90%;
+            max-width: 350px;
+            height: 100px;
+            display: block;
+        }
+        .message {
+            color: #FFEB3B;
+            margin-top: 15px;
+            font-weight: bold;
+        }
+        .error-message {
+            color: #ff0000;
+            margin-top: 15px;
+            font-weight: bold;
+        }
+        .footer {
+            margin-top: 40px;
+            color: #CDDC39; /* Verde-limão (Lime A400) - Mantendo um tom complementar para o footer */
+            font-size: 1em;
+        }
+        .footer p {
+            font-size: 0.9em;
+            margin-bottom: 5px;
+        }
+        a {
+            color: #CDDC39;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Rádio Cuesta Botucatu</h1>
+        <p>Sua web rádio diferente!</p>
+        <audio id="radioStream" controls preload="auto" crossorigin="anonymous">
+            <source src="https://cast1.midiazdx.com.br:6772/stream" type="audio/mpeg">
+            Seu navegador não suporta áudio HTML5. Por favor, tente em outro navegador.
+        </audio>
+        <div id="statusMessage" class="message">Clique no botão "Play" para iniciar a rádio e o visualizador.</div>
+        <canvas id="audioVisualizer" width="350" height="100"></canvas>
+    </div>
+    <div class="footer">
+        <p>&copy; 2023 Rádio Cuesta Botucatu. Todos os direitos reservados.</p>
+        <p>Acessos: <span id="accessCounter">Carregando...</span></p>
+        </div>
+
+    <script>
+        window.onload = function() {
+            const audio = document.getElementById('radioStream');
+            const canvas = document.getElementById('audioVisualizer');
+            const ctx = canvas.getContext('2d');
+            const statusMessage = document.getElementById('statusMessage');
+
+            const canvasWidth = canvas.width;
+            const canvasHeight = canvas.height;
+
+            const barHeight = (canvasHeight / 2) - 10;
+            const barGap = 5;
+            const meterX = 5;
+            const meterWidth = canvasWidth - (meterX * 2);
+
+            let audioContext;
+            let analyser;
+            let source;
+            let dataArray;
+            let bufferLength;
+
+            audio.addEventListener('error', function(e) {
+                let errorMessage = 'Erro ao carregar o áudio. Verifique o link ou a conexão.';
+                switch (e.target.error.code) {
+                    case e.target.error.MEDIA_ERR_NETWORK:
+                        errorMessage = 'Erro de rede: O áudio foi abortado devido a um erro de rede.';
+                        break;
+                    case e.target.error.MEDIA_ERR_DECODE:
+                        errorMessage = 'Ocorreu um erro ao decodificar o áudio.';
+                        break;
+                    case e.target.error.MEDIA_ERR_SRC_NOT_SUPPORTED:
+                        errorMessage = 'Formato não suportado: O formato do áudio não é suportado pelo seu navegador.';
+                        break;
+                    default:
+                        errorMessage = 'Erro desconhecido ao carregar o áudio.';
+                        break;
+                }
+                statusMessage.className = 'error-message';
+                statusMessage.textContent = errorMessage + ' (Código: ' + e.target.error.code + ')';
+                console.error("Audio Error:", e.target.error);
+            });
+
+            audio.crossOrigin = 'anonymous';
+
+            function initAudio() {
+                if (!audioContext) {
+                    try {
+                        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                        analyser = audioContext.createAnalyser();
+                        source = audioContext.createMediaElementSource(audio);
+
+                        source.connect(analyser);
+                        analyser.connect(audioContext.destination);
+
+                        analyser.fftSize = 2048;
+                        bufferLength = analyser.fftSize;
+                        dataArray = new Uint8Array(bufferLength);
+                        statusMessage.textContent = 'Rádio e visualizador prontos!';
+                        draw();
+                    } catch (e) {
+                        statusMessage.className = 'error-message';
+                        statusMessage.textContent = 'Erro ao inicializar o visualizador de áudio. Pode ser problema de CORS ou navegador. Detalhes no console.';
+                        console.error("AudioContext initialization error:", e);
+                    }
+                } else {
+                    draw();
+                }
+            }
+
+            audio.addEventListener('play', function() {
+                initAudio();
+                statusMessage.textContent = 'Tocando Rádio Cuesta Botucatu!';
+                if (audioContext && audioContext.state === 'suspended') {
+                    audioContext.resume();
+                }
+            });
+
+            audio.addEventListener('pause', function() {
+                statusMessage.textContent = 'Rádio pausada.';
+                ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+            });
+
+            audio.addEventListener('ended', function() {
+                statusMessage.textContent = 'Rádio finalizada.';
+                ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+            });
+
+            function drawVUBars(normalizedVolume) {
+                ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+
+                const barLength = meterWidth * normalizedVolume;
+
+                const gradient = ctx.createLinearGradient(meterX, 0, meterX + meterWidth, 0);
+                gradient.addColorStop(0, '#42A5F5');
+                gradient.addColorStop(0.7, '#64B5F6');
+                gradient.addColorStop(0.9, '#BBDEFB');
+                gradient.addColorStop(1, '#E3F2FD');
+                ctx.fillStyle = gradient;
+
+                ctx.fillRect(meterX, barGap, barLength, barHeight);
+                ctx.fillRect(meterX, barHeight + (barGap * 2), barLength, barHeight);
+
+                const peakThreshold = 0.95;
+                if (normalizedVolume >= peakThreshold) {
+                    ctx.fillStyle = '#FF0000';
+                    ctx.fillRect(meterX + (meterWidth * peakThreshold), barGap, 5, barHeight);
+                    ctx.fillRect(meterX + (meterWidth * peakThreshold), barHeight + (barGap * 2), 5, barHeight);
+                }
+
+                ctx.strokeStyle = '#3F51B5';
+                ctx.lineWidth = 1;
+                const numMarkers = 10;
+                for(let i = 0; i <= numMarkers; i++) {
+                    const x = meterX + (meterWidth / numMarkers) * i;
+                    ctx.beginPath();
+                    ctx.moveTo(x, barGap);
+                    ctx.lineTo(x, barGap + barHeight);
+                    ctx.stroke();
+
+                    ctx.beginPath();
+                    ctx.moveTo(x, barHeight + (barGap * 2));
+                    ctx.lineTo(x, barHeight + (barGap * 2) + barHeight);
+                    ctx.stroke();
+                }
+            }
+
+            function draw() {
+                requestAnimationFrame(draw);
+
+                if (!analyser || audio.paused) {
+                    return;
+                }
+
+                analyser.getByteTimeDomainData(dataArray);
+
+                let sum = 0;
+                for (let i = 0; i < bufferLength; i++) {
+                    const value = dataArray[i] - 128;
+                    sum += value * value;
+                }
+                const rms = Math.sqrt(sum / bufferLength);
+
+                let normalizedVolume = Math.min(1, rms / 80);
+                
+                drawVUBars(normalizedVolume);
+            }
+
+            drawVUBars(0);
+
+            audio.play().then(() => {
+                statusMessage.textContent = 'Rádio Cuesta Botucatu Iniciada! (Autoplay)';
+                initAudio();
+            }).catch(e => {
+                statusMessage.textContent = 'Clique no Play para ouvir a Rádio Cuesta Botucatu e ver o visualizador!';
+                console.warn("Autoplay bloqueado:", e);
+                drawVUBars(0);
+            });
+
+            let visits = localStorage.getItem('radioCuestaVisits');
+            if (visits === null) {
+                visits = 0;
+            }
+            visits++;
+            localStorage.setItem('radioCuestaVisits', visits);
+            document.getElementById('accessCounter').textContent = visits;
+        };
+    </script>
+</body>
+</html>
